@@ -44,6 +44,7 @@ type Step struct {
 
 	Timeout int
 
+	Kubeconfig      string
 	Client          func(forceNew bool) (client.Client, error)
 	DiscoveryClient func() (discovery.DiscoveryInterface, error)
 
@@ -489,6 +490,9 @@ func (s *Step) LoadYAML(file string) error {
 			s.Step.Index = s.Index
 			if s.Step.Name != "" {
 				s.Name = s.Step.Name
+			}
+			if s.Step.Kubeconfig != "" {
+				s.Kubeconfig = s.Step.Kubeconfig
 			}
 		} else {
 			applies = append(applies, obj)

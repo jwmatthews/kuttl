@@ -22,6 +22,8 @@ import (
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"k8s.io/client-go/tools/clientcmd"
+
 	"github.com/kudobuilder/kuttl/pkg/report"
 	testutils "github.com/kudobuilder/kuttl/pkg/test/utils"
 )
@@ -211,7 +213,13 @@ func (t *Case) Run(test *testing.T, tc *report.Testcase) {
 
 	for _, testStep := range t.Steps {
 		testStep.Client = t.Client
+		if testStep.Kubeconfig != "" {
+			testStep.Client = newClient(testStep.Kubeconfig)
+		}
 		testStep.DiscoveryClient = t.DiscoveryClient
+		if testStep.Kubeconfig != "" {
+			testStep.DiscoveryClient = newDiscoveryClient(testStep.Kubeconfig)
+		}
 		testStep.Logger = t.Logger.WithPrefix(testStep.String())
 		tc.Assertions += len(testStep.Asserts)
 		tc.Assertions += len(testStep.Errors)
@@ -348,4 +356,28 @@ func (t *Case) LoadTestSteps() error {
 
 	t.Steps = testSteps
 	return nil
+}
+
+func newClient(kubeconfig string) func(bool) (client.Client, error) {
+	return func(bool) (client.Client, error) {
+		config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+
+		return testutils.NewRetryClient(config, client.Options{
+			Scheme: testutils.Scheme(),
+		})
+	}
+}
+
+func newDiscoveryClient(kubeconfig string) func() (discovery.DiscoveryInterface, error) {
+	return func() (discovery.DiscoveryInterface, error) {
+		config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+		if err != nil {
+			return nil, err
+		}
+
+		return discovery.NewDiscoveryClientForConfig(config)
+	}
 }
