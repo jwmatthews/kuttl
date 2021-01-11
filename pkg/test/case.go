@@ -55,18 +55,13 @@ type namespace struct {
 }
 
 // DeleteNamespace deletes a namespace in Kubernetes after we are done using it.
-func (t *Case) DeleteNamespace(ns *namespace) error {
+func (t *Case) DeleteNamespace(cl client.Client, ns *namespace) error {
 	if !ns.AutoCreated {
 		t.Logger.Log("Skipping deletion of user-supplied namespace:", ns.Name)
 		return nil
 	}
 
 	t.Logger.Log("Deleting namespace:", ns.Name)
-
-	cl, err := t.Client(false)
-	if err != nil {
-		return err
-	}
 
 	ctx := context.Background()
 	if t.Timeout > 0 {
@@ -86,17 +81,12 @@ func (t *Case) DeleteNamespace(ns *namespace) error {
 }
 
 // CreateNamespace creates a namespace in Kubernetes to use for a test.
-func (t *Case) CreateNamespace(ns *namespace) error {
+func (t *Case) CreateNamespace(cl client.Client, ns *namespace) error {
 	if !ns.AutoCreated {
 		t.Logger.Log("Skipping creation of user-supplied namespace:", ns.Name)
 		return nil
 	}
 	t.Logger.Log("Creating namespace:", ns.Name)
-
-	cl, err := t.Client(false)
-	if err != nil {
-		return err
-	}
 
 	ctx := context.Background()
 	if t.Timeout > 0 {
@@ -198,15 +188,42 @@ func shortString(obj *corev1.ObjectReference) string {
 // Run runs a test case including all of its steps.
 func (t *Case) Run(test *testing.T, tc *report.Testcase) {
 	ns := t.determineNamespace()
-	if err := t.CreateNamespace(ns); err != nil {
+
+	cl, err := t.Client(false)
+	if err != nil {
 		tc.Failure = report.NewFailure(err.Error(), nil)
 		test.Fatal(err)
 	}
 
+	clients := map[string]client.Client{ "": cl }
+
+	for _, testStep := range t.Steps {
+		if clients[testStep.Kubeconfig] != nil {
+			continue
+		}
+
+		cl, err := newClient(testStep.Kubeconfig)(false)
+		if err != nil {
+			tc.Failure = report.NewFailure(err.Error(), nil)
+			test.Fatal(err)
+		}
+
+		clients[testStep.Kubeconfig] = cl
+	}
+
+	for _, client := range clients {
+		if err := t.CreateNamespace(client, ns); err != nil {
+			tc.Failure = report.NewFailure(err.Error(), nil)
+			test.Fatal(err)
+		}
+	}
+
 	if !t.SkipDelete {
 		defer func() {
-			if err := t.DeleteNamespace(ns); err != nil {
-				test.Error(err)
+			for _, client := range clients {
+				if err := t.DeleteNamespace(client, ns); err != nil {
+					test.Error(err)
+				}
 			}
 		}()
 	}
